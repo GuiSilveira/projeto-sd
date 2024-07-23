@@ -105,16 +105,12 @@ sendDiscoveryMessage((ip, port) => {
                 const chunk = Buffer.from(partData, 'base64')
 
                 try {
-                    let fileId
-                    const existingFile =
-                        await sql`SELECT id FROM files WHERE filename = ${fileName} AND client_id = ${clientId}`
-                    if (existingFile.length === 0) {
-                        const result =
-                            await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) RETURNING id`
-                        fileId = result[0].id
-                    } else {
-                        fileId = existingFile[0].id
-                    }
+                    const result =
+                        await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) ON CONFLICT (filename) DO NOTHING RETURNING id`
+                    const fileId =
+                        result.length > 0
+                            ? result[0].id
+                            : (await sql`SELECT id FROM files WHERE filename = ${fileName}`)[0].id
 
                     await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${chunk}::bytea, ${localIP}::text)`
                     console.log(`Part ${partNumber} of ${fileName} uploaded successfully by client ${clientId}`)
