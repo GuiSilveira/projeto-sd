@@ -104,8 +104,11 @@ sendDiscoveryMessage((ip, port) => {
                             const result =
                                 await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) RETURNING id`
                             fileId = result[0].id
-                        } else {
+                        } else if (existingFile.length > 0) {
                             fileId = existingFile[0].id
+                        } else {
+                            console.error('File ID could not be determined.')
+                            return
                         }
 
                         await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${chunk}::bytea, ${localIP}::text)`
