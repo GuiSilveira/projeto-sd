@@ -73,30 +73,37 @@ function uploadFile(ip, port, filePath) {
         () => {
             const fileStream = fs.createReadStream(filePath, { highWaterMark: chunkSize })
             let partNumber = 0
-
-            fileStream.on('data', (chunk) => {
-                const message = JSON.stringify({
-                    clientId,
-                    fileName,
-                    partNumber,
-                    partData: chunk.toString('base64'),
-                })
-
-                client.publish(uploadQueue, message)
-                partNumber++
-            })
-
-            fileStream.on('end', () => {
-                console.log('File upload complete')
-                client.disconnect()
-            })
+            let fileExists = false
 
             client.subscribe(uploadResponseQueue, (body, headers) => {
                 const { clientId, fileName, error } = JSON.parse(body)
                 if (error) {
                     console.error(`Error: ${error}`)
+                    fileExists = true
+                    fileStream.close()
+                    client.disconnect()
                 } else {
                     console.log(`File ${fileName} uploaded successfully by client ${clientId}`)
+                }
+            })
+
+            fileStream.on('data', (chunk) => {
+                if (!fileExists) {
+                    const message = JSON.stringify({
+                        clientId,
+                        fileName,
+                        partNumber,
+                        partData: chunk.toString('base64'),
+                    })
+                    client.publish(uploadQueue, message)
+                    partNumber++
+                }
+            })
+
+            fileStream.on('end', () => {
+                if (!fileExists) {
+                    console.log('File upload complete')
+                    client.disconnect()
                 }
             })
         },

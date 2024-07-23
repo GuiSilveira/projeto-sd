@@ -86,8 +86,8 @@ sendDiscoveryMessage((ip, port) => {
                     // Verificar se o arquivo já existe para o mesmo cliente
                     const existingFile =
                         await sql`SELECT id FROM files WHERE filename = ${fileName} AND client_id = ${clientId}`
-                    if (existingFile.length > 0) {
-                        // Enviar mensagem de erro ao cliente
+                    if (existingFile.length > 0 && partNumber === 0) {
+                        // Enviar mensagem de erro ao cliente se já existe um arquivo com o mesmo nome para o mesmo cliente
                         client.publish(
                             uploadResponseQueue,
                             JSON.stringify({
@@ -99,9 +99,14 @@ sendDiscoveryMessage((ip, port) => {
                         console.log(`File ${fileName} already exists for client ${clientId}`)
                     } else {
                         // Inserir arquivo e partes
-                        const result =
-                            await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) RETURNING id`
-                        const fileId = result[0].id
+                        let fileId
+                        if (existingFile.length === 0 && partNumber === 0) {
+                            const result =
+                                await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) RETURNING id`
+                            fileId = result[0].id
+                        } else {
+                            fileId = existingFile[0].id
+                        }
 
                         await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${chunk}::bytea, ${localIP}::text)`
                         console.log(`Part ${partNumber} of ${fileName} uploaded successfully by client ${clientId}`)
