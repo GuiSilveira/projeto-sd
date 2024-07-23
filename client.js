@@ -13,6 +13,8 @@ const uploadResponseQueue = '/queue/upload-response'
 const checkFileQueue = '/queue/check-file'
 const downloadQueue = '/queue/download'
 const downloadResponseQueue = '/queue/download-response'
+const listFilesQueue = '/queue/list-files'
+const listFilesResponseQueue = '/queue/list-files-response'
 const chunkSize = 1024 // 1 KB
 const clientId = uuidv4() // Gera um identificador único para o cliente
 
@@ -127,6 +129,28 @@ function uploadFile(ip, port, filePath) {
     )
 }
 
+function listFiles(ip, port, callback) {
+    const client = new Stomp(ip, port)
+
+    client.connect(
+        () => {
+            client.subscribe(listFilesResponseQueue, (body, headers) => {
+                const { clientId, files } = JSON.parse(body)
+                callback(files)
+                client.disconnect()
+            })
+
+            const message = JSON.stringify({
+                clientId,
+            })
+            client.publish(listFilesQueue, message)
+        },
+        (error) => {
+            console.error('Error connecting to ActiveMQ:', error)
+        }
+    )
+}
+
 function downloadFile(ip, port, fileName) {
     const client = new Stomp(ip, port)
     const fileStream = fs.createWriteStream(path.join(__dirname, 'downloaded_' + fileName))
@@ -165,22 +189,32 @@ const rl = readline.createInterface({
 })
 
 function askUserChoice(ip, port) {
-    rl.question('Você deseja fazer upload ou download de um arquivo? (upload/download/sair): ', (answer) => {
-        if (answer.toLowerCase() === 'upload') {
+    console.log('Selecione uma opção:')
+    console.log('1. Upload de arquivo')
+    console.log('2. Download de arquivo')
+    console.log('3. Listar arquivos disponíveis para download')
+    console.log('4. Sair')
+    rl.question('Digite o número da sua escolha: ', (answer) => {
+        if (answer === '1') {
             rl.question('Por favor, insira o caminho do arquivo para upload: ', (filePath) => {
                 uploadFile(ip, port, filePath)
                 setTimeout(() => askUserChoice(ip, port), 1000) // Permite que a ação de upload termine antes de mostrar o menu novamente
             })
-        } else if (answer.toLowerCase() === 'download') {
+        } else if (answer === '2') {
             rl.question('Por favor, insira o nome do arquivo para download: ', (fileName) => {
                 downloadFile(ip, port, fileName)
                 setTimeout(() => askUserChoice(ip, port), 1000) // Permite que a ação de download termine antes de mostrar o menu novamente
             })
-        } else if (answer.toLowerCase() === 'sair') {
+        } else if (answer === '3') {
+            listFiles(ip, port, (files) => {
+                console.log('Arquivos disponíveis para download:', files.join(', '))
+                setTimeout(() => askUserChoice(ip, port), 1000) // Permite que a listagem termine antes de mostrar o menu novamente
+            })
+        } else if (answer === '4') {
             console.log('Saindo...')
             rl.close()
         } else {
-            console.log('Escolha inválida. Por favor, digite "upload", "download" ou "sair".')
+            console.log('Escolha inválida. Por favor, digite um número entre 1 e 4.')
             askUserChoice(ip, port)
         }
     })

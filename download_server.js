@@ -7,6 +7,8 @@ const udpPort = 41234
 const clientPort = 41235
 const downloadQueue = '/queue/download'
 const downloadResponseQueue = '/queue/download-response'
+const listFilesQueue = '/queue/list-files'
+const listFilesResponseQueue = '/queue/list-files-response'
 
 // Função para obter o IP local
 function getLocalIP() {
@@ -107,6 +109,29 @@ sendDiscoveryMessage((ip, port) => {
                 } catch (err) {
                     client.publish(downloadResponseQueue, JSON.stringify({ error: 'Error retrieving file' }))
                     console.error(`Error retrieving file: ${err}`)
+                }
+            })
+
+            client.subscribe(listFilesQueue, async (body, headers) => {
+                const { clientId } = JSON.parse(body)
+
+                try {
+                    const files = await sql`
+          SELECT filename 
+          FROM files 
+          WHERE client_id = ${clientId}
+        `
+                    const fileList = files.map((file) => file.filename)
+
+                    client.publish(
+                        listFilesResponseQueue,
+                        JSON.stringify({
+                            clientId,
+                            files: fileList,
+                        })
+                    )
+                } catch (err) {
+                    console.error(`Error retrieving file list: ${err}`)
                 }
             })
         },
