@@ -98,6 +98,7 @@ sendDiscoveryMessage((ip, port) => {
                             })
                             client.publish(downloadResponseQueue, message)
                         })
+                        client.publish(downloadResponseQueue, JSON.stringify({ complete: true }))
                         console.log(`File ${fileName} download complete for client ${clientId}`)
                     } else {
                         client.publish(

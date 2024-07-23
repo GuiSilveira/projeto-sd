@@ -162,9 +162,16 @@ function downloadFile(ip, port, fileName, callback) {
     client.connect(
         () => {
             client.subscribe(downloadResponseQueue, (body, headers) => {
-                const { partData, error } = JSON.parse(body)
+                const { partData, error, complete } = JSON.parse(body)
                 if (error) {
                     console.error(error)
+                    client.disconnect()
+                    callback()
+                    return
+                }
+                if (complete) {
+                    console.log('File download complete')
+                    fileStream.end()
                     client.disconnect()
                     callback()
                     return
@@ -180,10 +187,6 @@ function downloadFile(ip, port, fileName, callback) {
             client.publish(downloadQueue, message)
 
             console.log('File download initiated')
-            fileStream.on('finish', () => {
-                client.disconnect()
-                callback()
-            })
         },
         (error) => {
             console.error('Error connecting to ActiveMQ:', error)
