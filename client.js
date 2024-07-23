@@ -91,7 +91,7 @@ function checkFileExistence(ip, port, fileName, callback) {
     )
 }
 
-function uploadFile(ip, port, filePath) {
+function uploadFile(ip, port, filePath, callback) {
     const client = new Stomp(ip, port)
     const fileName = path.basename(filePath)
 
@@ -101,6 +101,7 @@ function uploadFile(ip, port, filePath) {
                 if (exists) {
                     console.error(`Error: File ${fileName} already exists.`)
                     client.disconnect()
+                    callback()
                 } else {
                     const fileStream = fs.createReadStream(filePath, { highWaterMark: chunkSize })
                     let partNumber = 0
@@ -119,12 +120,14 @@ function uploadFile(ip, port, filePath) {
                     fileStream.on('end', () => {
                         console.log('File upload complete')
                         client.disconnect()
+                        callback()
                     })
                 }
             })
         },
         (error) => {
             console.error('Error connecting to ActiveMQ:', error)
+            callback()
         }
     )
 }
@@ -147,11 +150,12 @@ function listFiles(ip, port, callback) {
         },
         (error) => {
             console.error('Error connecting to ActiveMQ:', error)
+            callback([])
         }
     )
 }
 
-function downloadFile(ip, port, fileName) {
+function downloadFile(ip, port, fileName, callback) {
     const client = new Stomp(ip, port)
     const fileStream = fs.createWriteStream(path.join(__dirname, 'downloaded_' + fileName))
 
@@ -162,6 +166,7 @@ function downloadFile(ip, port, fileName) {
                 if (error) {
                     console.error(error)
                     client.disconnect()
+                    callback()
                     return
                 }
                 const chunk = Buffer.from(partData, 'base64')
@@ -175,9 +180,14 @@ function downloadFile(ip, port, fileName) {
             client.publish(downloadQueue, message)
 
             console.log('File download initiated')
+            fileStream.on('finish', () => {
+                client.disconnect()
+                callback()
+            })
         },
         (error) => {
             console.error('Error connecting to ActiveMQ:', error)
+            callback()
         }
     )
 }
@@ -197,18 +207,20 @@ function askUserChoice(ip, port) {
     rl.question('Digite o número da sua escolha: ', (answer) => {
         if (answer === '1') {
             rl.question('Por favor, insira o caminho do arquivo para upload: ', (filePath) => {
-                uploadFile(ip, port, filePath)
-                setTimeout(() => askUserChoice(ip, port), 1000) // Permite que a ação de upload termine antes de mostrar o menu novamente
+                uploadFile(ip, port, filePath, () => {
+                    askUserChoice(ip, port)
+                })
             })
         } else if (answer === '2') {
             rl.question('Por favor, insira o nome do arquivo para download: ', (fileName) => {
-                downloadFile(ip, port, fileName)
-                setTimeout(() => askUserChoice(ip, port), 1000) // Permite que a ação de download termine antes de mostrar o menu novamente
+                downloadFile(ip, port, fileName, () => {
+                    askUserChoice(ip, port)
+                })
             })
         } else if (answer === '3') {
             listFiles(ip, port, (files) => {
                 console.log('Arquivos disponíveis para download:', files.join(', '))
-                setTimeout(() => askUserChoice(ip, port), 1000) // Permite que a listagem termine antes de mostrar o menu novamente
+                askUserChoice(ip, port)
             })
         } else if (answer === '4') {
             console.log('Saindo...')
