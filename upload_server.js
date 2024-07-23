@@ -105,13 +105,25 @@ sendDiscoveryMessage((ip, port) => {
                 const chunk = Buffer.from(partData, 'base64')
 
                 try {
-                    const result =
-                        await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) ON CONFLICT (filename) DO NOTHING RETURNING id`
-                    const fileId =
-                        result.length > 0
-                            ? result[0].id
-                            : (await sql`SELECT id FROM files WHERE filename = ${fileName}`)[0].id
+                    let fileId
 
+                    // Tenta inserir o arquivo e, se já existir, recupera o ID
+                    try {
+                        const result =
+                            await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) RETURNING id`
+                        fileId = result[0].id
+                    } catch (insertErr) {
+                        if (insertErr.code === '23505') {
+                            // Unique violation
+                            const existingFile =
+                                await sql`SELECT id FROM files WHERE filename = ${fileName} AND client_id = ${clientId}`
+                            fileId = existingFile[0].id
+                        } else {
+                            throw insertErr
+                        }
+                    }
+
+                    // Insere a parte do arquivo associada ao id do arquivo
                     await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${chunk}::bytea, ${localIP}::text)`
                     console.log(`Part ${partNumber} of ${fileName} uploaded successfully by client ${clientId}`)
                 } catch (err) {
