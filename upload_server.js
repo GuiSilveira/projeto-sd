@@ -7,6 +7,7 @@ const udpPort = 41234
 const clientPort = 41235
 const uploadQueue = '/queue/upload'
 const uploadResponseQueue = '/queue/upload-response'
+const checkFileQueue = '/queue/check-file'
 
 // Função para obter o IP local
 function getLocalIP() {
@@ -78,42 +79,45 @@ sendDiscoveryMessage((ip, port) => {
 
     client.connect(
         () => {
+            client.subscribe(checkFileQueue, async (body, headers) => {
+                const { clientId, fileName } = JSON.parse(body)
+
+                try {
+                    const existingFile =
+                        await sql`SELECT id FROM files WHERE filename = ${fileName} AND client_id = ${clientId}`
+                    const exists = existingFile.length > 0
+
+                    client.publish(
+                        uploadResponseQueue,
+                        JSON.stringify({
+                            clientId,
+                            fileName,
+                            exists,
+                        })
+                    )
+                } catch (err) {
+                    console.error(`Error checking file existence: ${err}`)
+                }
+            })
+
             client.subscribe(uploadQueue, async (body, headers) => {
                 const { clientId, fileName, partNumber, partData } = JSON.parse(body)
                 const chunk = Buffer.from(partData, 'base64')
 
                 try {
-                    // Verificar se o arquivo já existe para o mesmo cliente
+                    let fileId
                     const existingFile =
                         await sql`SELECT id FROM files WHERE filename = ${fileName} AND client_id = ${clientId}`
-                    if (existingFile.length > 0 && partNumber === 0) {
-                        // Enviar mensagem de erro ao cliente se já existe um arquivo com o mesmo nome para o mesmo cliente
-                        client.publish(
-                            uploadResponseQueue,
-                            JSON.stringify({
-                                clientId,
-                                fileName,
-                                error: 'File already exists',
-                            })
-                        )
-                        console.log(`File ${fileName} already exists for client ${clientId}`)
+                    if (existingFile.length === 0) {
+                        const result =
+                            await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) RETURNING id`
+                        fileId = result[0].id
                     } else {
-                        // Inserir arquivo e partes
-                        let fileId
-                        if (existingFile.length === 0 && partNumber === 0) {
-                            const result =
-                                await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) RETURNING id`
-                            fileId = result[0].id
-                        } else if (existingFile.length > 0) {
-                            fileId = existingFile[0].id
-                        } else {
-                            console.error('File ID could not be determined.')
-                            return
-                        }
-
-                        await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${chunk}::bytea, ${localIP}::text)`
-                        console.log(`Part ${partNumber} of ${fileName} uploaded successfully by client ${clientId}`)
+                        fileId = existingFile[0].id
                     }
+
+                    await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${chunk}::bytea, ${localIP}::text)`
+                    console.log(`Part ${partNumber} of ${fileName} uploaded successfully by client ${clientId}`)
                 } catch (err) {
                     console.error(`Error saving file part: ${err}`)
                 }

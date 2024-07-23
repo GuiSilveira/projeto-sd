@@ -10,6 +10,7 @@ const udpPort = 41234
 const clientPort = 41235
 const uploadQueue = '/queue/upload'
 const uploadResponseQueue = '/queue/upload-response'
+const checkFileQueue = '/queue/check-file'
 const downloadQueue = '/queue/download'
 const downloadResponseQueue = '/queue/download-response'
 const chunkSize = 1024 // 1 KB
@@ -65,45 +66,58 @@ function sendDiscoveryMessage(callback) {
     })
 }
 
+function checkFileExistence(ip, port, fileName, callback) {
+    const client = new Stomp(ip, port)
+
+    client.connect(
+        () => {
+            client.subscribe(uploadResponseQueue, (body, headers) => {
+                const { clientId, fileName, exists } = JSON.parse(body)
+                callback(exists)
+                client.disconnect()
+            })
+
+            const message = JSON.stringify({
+                clientId,
+                fileName,
+            })
+            client.publish(checkFileQueue, message)
+        },
+        (error) => {
+            console.error('Error connecting to ActiveMQ:', error)
+        }
+    )
+}
+
 function uploadFile(ip, port, filePath) {
     const client = new Stomp(ip, port)
     const fileName = path.basename(filePath)
 
     client.connect(
         () => {
-            const fileStream = fs.createReadStream(filePath, { highWaterMark: chunkSize })
-            let partNumber = 0
-            let fileExists = false
-
-            client.subscribe(uploadResponseQueue, (body, headers) => {
-                const { clientId, fileName, error } = JSON.parse(body)
-                if (error) {
-                    console.error(`Error: ${error}`)
-                    fileExists = true
-                    fileStream.close()
+            checkFileExistence(ip, port, fileName, (exists) => {
+                if (exists) {
+                    console.error(`Error: File ${fileName} already exists.`)
                     client.disconnect()
                 } else {
-                    console.log(`File ${fileName} uploaded successfully by client ${clientId}`)
-                }
-            })
+                    const fileStream = fs.createReadStream(filePath, { highWaterMark: chunkSize })
+                    let partNumber = 0
 
-            fileStream.on('data', (chunk) => {
-                if (!fileExists) {
-                    const message = JSON.stringify({
-                        clientId,
-                        fileName,
-                        partNumber,
-                        partData: chunk.toString('base64'),
+                    fileStream.on('data', (chunk) => {
+                        const message = JSON.stringify({
+                            clientId,
+                            fileName,
+                            partNumber,
+                            partData: chunk.toString('base64'),
+                        })
+                        client.publish(uploadQueue, message)
+                        partNumber++
                     })
-                    client.publish(uploadQueue, message)
-                    partNumber++
-                }
-            })
 
-            fileStream.on('end', () => {
-                if (!fileExists) {
-                    console.log('File upload complete')
-                    client.disconnect()
+                    fileStream.on('end', () => {
+                        console.log('File upload complete')
+                        client.disconnect()
+                    })
                 }
             })
         },
