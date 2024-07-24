@@ -92,6 +92,13 @@ function checkFileExistence(ip, port, fileName, callback) {
 }
 
 function uploadFile(ip, port, filePath, callback) {
+    // Verificação se o arquivo existe antes de tentar o upload
+    if (!fs.existsSync(filePath)) {
+        console.error(`Error: File ${filePath} does not exist.`)
+        callback()
+        return
+    }
+
     const client = new Stomp(ip, port)
     const fileName = path.basename(filePath)
 
@@ -119,6 +126,12 @@ function uploadFile(ip, port, filePath, callback) {
 
                     fileStream.on('end', () => {
                         console.log('File upload complete')
+                        client.disconnect()
+                        callback()
+                    })
+
+                    fileStream.on('error', (err) => {
+                        console.error(`Error reading file ${filePath}: ${err}`)
                         client.disconnect()
                         callback()
                     })
