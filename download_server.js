@@ -28,9 +28,8 @@ function getLocalIP() {
 const localIP = getLocalIP()
 
 function decryptData(data) {
-    const parts = data.split(':')
-    const iv = Buffer.from(parts.shift(), 'hex')
-    const encryptedText = Buffer.from(parts.join(':'), 'hex')
+    const iv = data.slice(0, 16) // Os primeiros 16 bytes são o IV
+    const encryptedText = data.slice(16) // O restante é o texto criptografado
     const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(encryptionKey), iv)
     let decrypted = decipher.update(encryptedText)
     decrypted = Buffer.concat([decrypted, decipher.final()])

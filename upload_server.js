@@ -31,7 +31,7 @@ function encryptData(data) {
     const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(encryptionKey), iv)
     let encrypted = cipher.update(data)
     encrypted = Buffer.concat([encrypted, cipher.final()])
-    return iv.toString('hex') + ':' + encrypted.toString('hex')
+    return Buffer.concat([iv, encrypted])
 }
 
 function sendDiscoveryMessage(callback) {
@@ -132,7 +132,7 @@ sendDiscoveryMessage((ip, port) => {
 
                     const encryptedChunk = encryptData(chunk)
 
-                    await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${encryptedChunk}::text, ${localIP}::text)`
+                    await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${encryptedChunk}, ${localIP}::text)`
                     console.log(`Part ${partNumber} of ${fileName} uploaded successfully by client ${clientId}`)
                 } catch (err) {
                     console.error(`Error saving file part: ${err}`)
