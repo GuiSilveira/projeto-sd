@@ -136,6 +136,14 @@ sendDiscoveryMessage((ip, port) => {
                     console.log(`Part ${partNumber} of ${fileName} uploaded successfully by client ${clientId}`)
                 } catch (err) {
                     console.error(`Error saving file part: ${err}`)
+                    client.publish(
+                        uploadResponseQueue,
+                        JSON.stringify({
+                            clientId,
+                            fileName,
+                            error: 'Error saving file part',
+                        })
+                    )
                 }
             })
         },

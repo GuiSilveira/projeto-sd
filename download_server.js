@@ -93,6 +93,21 @@ sendDiscoveryMessage((ip, port) => {
                 const { clientId, fileName } = JSON.parse(body)
 
                 try {
+                    const fileExists = await sql`
+                        SELECT id 
+                        FROM files 
+                        WHERE filename = ${fileName} AND client_id = ${clientId}
+                    `
+
+                    if (fileExists.length === 0) {
+                        client.publish(
+                            downloadResponseQueue,
+                            JSON.stringify({ error: 'File not found or not owned by client' })
+                        )
+                        console.error('File not found or not owned by client')
+                        return
+                    }
+
                     const parts = await sql`
                         SELECT part_data 
                         FROM file_parts fp 
