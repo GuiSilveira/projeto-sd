@@ -1,6 +1,7 @@
 const dgram = require('dgram')
 const postgres = require('postgres')
 const Stomp = require('stomp-client')
+const crypto = require('crypto')
 
 const multicastAddress = '239.255.255.250'
 const udpPort = 41234
@@ -9,7 +10,8 @@ const uploadQueue = '/queue/upload'
 const uploadResponseQueue = '/queue/upload-response'
 const checkFileQueue = '/queue/check-file'
 
-// Função para obter o IP local
+const encryptionKey = '6e55b04f331955ef56aeaa6e4cf0ffcafeee70761239b2095626e81a2b359bed' // Deve ter 32 caracteres (256 bits)
+
 function getLocalIP() {
     const interfaces = require('os').networkInterfaces()
     for (const name of Object.keys(interfaces)) {
@@ -23,6 +25,14 @@ function getLocalIP() {
 }
 
 const localIP = getLocalIP()
+
+function encryptData(data) {
+    const iv = crypto.randomBytes(16)
+    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(encryptionKey), iv)
+    let encrypted = cipher.update(data)
+    encrypted = Buffer.concat([encrypted, cipher.final()])
+    return iv.toString('hex') + ':' + encrypted.toString('hex')
+}
 
 function sendDiscoveryMessage(callback) {
     const udpClient = dgram.createSocket('udp4')
@@ -61,7 +71,6 @@ function sendDiscoveryMessage(callback) {
 }
 
 sendDiscoveryMessage((ip, port) => {
-    // Configuração do PostgreSQL
     const sql = postgres({
         user: 'projetosddb_owner',
         host: 'ep-noisy-heart-a57bnu29.us-east-2.aws.neon.tech',
@@ -74,7 +83,6 @@ sendDiscoveryMessage((ip, port) => {
         },
     })
 
-    // Configuração do ActiveMQ
     const client = new Stomp(ip, port)
 
     client.connect(
@@ -107,7 +115,6 @@ sendDiscoveryMessage((ip, port) => {
                 try {
                     let fileId
 
-                    // Tenta inserir o arquivo e, se já existir, recupera o ID
                     try {
                         const result =
                             await sql`INSERT INTO files (filename, client_id) VALUES (${fileName}, ${clientId}) RETURNING id`
@@ -123,8 +130,9 @@ sendDiscoveryMessage((ip, port) => {
                         }
                     }
 
-                    // Insere a parte do arquivo associada ao id do arquivo
-                    await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${chunk}::bytea, ${localIP}::text)`
+                    const encryptedChunk = encryptData(chunk)
+
+                    await sql`INSERT INTO file_parts (file_id, part_number, part_data, node_ip) VALUES (${fileId}::int, ${partNumber}::int, ${encryptedChunk}::text, ${localIP}::text)`
                     console.log(`Part ${partNumber} of ${fileName} uploaded successfully by client ${clientId}`)
                 } catch (err) {
                     console.error(`Error saving file part: ${err}`)

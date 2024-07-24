@@ -1,6 +1,7 @@
 const dgram = require('dgram')
 const postgres = require('postgres')
 const Stomp = require('stomp-client')
+const crypto = require('crypto')
 
 const multicastAddress = '239.255.255.250'
 const udpPort = 41234
@@ -10,7 +11,8 @@ const downloadResponseQueue = '/queue/download-response'
 const listFilesQueue = '/queue/list-files'
 const listFilesResponseQueue = '/queue/list-files-response'
 
-// Função para obter o IP local
+const encryptionKey = '6e55b04f331955ef56aeaa6e4cf0ffcafeee70761239b2095626e81a2b359bed' // Deve ter 32 caracteres (256 bits)
+
 function getLocalIP() {
     const interfaces = require('os').networkInterfaces()
     for (const name of Object.keys(interfaces)) {
@@ -24,6 +26,16 @@ function getLocalIP() {
 }
 
 const localIP = getLocalIP()
+
+function decryptData(data) {
+    const parts = data.split(':')
+    const iv = Buffer.from(parts.shift(), 'hex')
+    const encryptedText = Buffer.from(parts.join(':'), 'hex')
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(encryptionKey), iv)
+    let decrypted = decipher.update(encryptedText)
+    decrypted = Buffer.concat([decrypted, decipher.final()])
+    return decrypted
+}
 
 function sendDiscoveryMessage(callback) {
     const udpClient = dgram.createSocket('udp4')
@@ -62,7 +74,6 @@ function sendDiscoveryMessage(callback) {
 }
 
 sendDiscoveryMessage((ip, port) => {
-    // Configuração do PostgreSQL
     const sql = postgres({
         user: 'projetosddb_owner',
         host: 'ep-noisy-heart-a57bnu29.us-east-2.aws.neon.tech',
@@ -75,7 +86,6 @@ sendDiscoveryMessage((ip, port) => {
         },
     })
 
-    // Configuração do ActiveMQ
     const client = new Stomp(ip, port)
 
     client.connect(
@@ -85,16 +95,17 @@ sendDiscoveryMessage((ip, port) => {
 
                 try {
                     const parts = await sql`
-          SELECT part_data 
-          FROM file_parts fp 
-          JOIN files f ON fp.file_id = f.id 
-          WHERE f.filename = ${fileName} AND f.client_id = ${clientId} 
-          ORDER BY fp.part_number
-        `
+                        SELECT part_data 
+                        FROM file_parts fp 
+                        JOIN files f ON fp.file_id = f.id 
+                        WHERE f.filename = ${fileName} AND f.client_id = ${clientId} 
+                        ORDER BY fp.part_number
+                    `
                     if (parts.length > 0) {
                         parts.forEach((part) => {
+                            const decryptedChunk = decryptData(part.part_data)
                             const message = JSON.stringify({
-                                partData: part.part_data.toString('base64'),
+                                partData: decryptedChunk.toString('base64'),
                             })
                             client.publish(downloadResponseQueue, message)
                         })
@@ -118,10 +129,10 @@ sendDiscoveryMessage((ip, port) => {
 
                 try {
                     const files = await sql`
-          SELECT filename 
-          FROM files 
-          WHERE client_id = ${clientId}
-        `
+                        SELECT filename 
+                        FROM files 
+                        WHERE client_id = ${clientId}
+                    `
                     const fileList = files.map((file) => file.filename)
 
                     client.publish(
