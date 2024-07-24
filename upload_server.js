@@ -10,7 +10,7 @@ const uploadQueue = '/queue/upload'
 const uploadResponseQueue = '/queue/upload-response'
 const checkFileQueue = '/queue/check-file'
 
-const encryptionKey = '6e55b04f331955ef56aeaa6e4cf0ffcafeee70761239b2095626e81a2b359bed' // Deve ter 32 caracteres (256 bits)
+const encryptionKey = 'hmsWPO8eW+VQ7Ixuam8pQg5tioCUM/8b' // Deve ter 32 caracteres (256 bits)
 
 function getLocalIP() {
     const interfaces = require('os').networkInterfaces()
